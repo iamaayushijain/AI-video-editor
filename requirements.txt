@@ -1,0 +1,14 @@
+moviepy==1.0.3
+transformers>=4.35.0
+torch>=2.0.0
+torchvision>=0.15.0
+opencv-python>=4.8.0
+scipy>=1.11.0
+numpy>=1.24.0,<2.0.0
+Pillow>=10.0.0
+decorator>=4.4.2
+imageio>=2.25.0
+imageio-ffmpeg>=0.4.8
+proglog>=0.1.10
+tqdm>=4.65.0
+

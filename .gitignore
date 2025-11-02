@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Video files
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.m4v
+
+# Audio files
+*.mp3
+*.wav
+*.m4a
+
+# Temporary files
+temp-audio.m4a
+*.temp
+
+# Model cache
+.cache/
+transformers_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output
+cinematic_output*.mp4
+output*.mp4
+final*.mp4
+
