@@ -4,19 +4,34 @@ An intelligent video editor that automatically analyzes your video clips, detect
 
 ## ✨ Features
 
-- **AI Emotion Detection**: Uses VideoMAE model to analyze video content and detect emotional themes (epic, calm, tense, joyful, neutral)
-- **Cinematic Filters**: Multiple professional-grade filters including:
-  - Dramatic high-contrast filter for epic scenes
-  - Soft dreamy filter for calm moments
-  - Cool cinematic filter for tense scenes
-  - Warm golden-hour filter for joyful content
-  - Enhanced neutral filter for balanced look
-- **Dynamic Transitions**: 
-  - Zoom-in effect for opening clip
-  - Zoom-out effect for closing clip
-  - Smooth crossfades between clips
-- **Smart Music Selection**: Automatically selects background music based on detected emotional theme
-- **Professional Output**: 720p HD video with optimized encoding
+### 🤖 Intelligent ML/CV Processing
+- **Smart Frame Selection**: Extracts 32 frames and intelligently selects best 16 based on:
+  - Sharpness (Laplacian variance)
+  - Color vibrancy (saturation)
+  - Optimal exposure (brightness)
+  - Contrast quality
+- **Automatic Scene Detection**: Histogram-based scene change detection to extract multiple best segments
+- **AI Emotion Detection**: Uses VideoMAE model to analyze video content (epic, calm, tense, joyful, neutral)
+- **Multi-Segment Extraction**: Extracts 2-3 best quality segments per video instead of just one
+
+### 🎨 Professional Cinematic Effects
+- **6 Cinematic Filters**:
+  - Dramatic high-contrast (epic scenes)
+  - Soft dreamy (calm moments)
+  - Cool blue-tint (tense scenes)
+  - Warm golden-hour (joyful content)
+  - Vintage with vignette
+  - Enhanced neutral
+- **Adaptive Transitions**: 
+  - Subtle crossfades within same source video
+  - Dramatic zoom transitions between different videos
+  - Eye-catching opening (zoom-in + fade)
+  - Polished closing (zoom-out + fade)
+
+### 🎵 Smart Features
+- **Intelligent Music Selection**: Auto-selects music based on dominant emotion
+- **Performance Tracking**: Detailed timing breakdown for every processing step
+- **Professional Output**: 720p HD video with H.264 encoding
 
 ## 📋 Requirements
 
@@ -222,21 +237,53 @@ Edit the `KINETICS_TO_EMOTION_MAP` dictionary (starting line 20) to map more act
 ## 📝 Example Output
 
 ```
-Input: 5 video clips of surfing, snowboarding, and rock climbing
-Analysis: Detected "epic" as dominant emotion
+Input: 3 video clips (surfing, yoga, skateboarding)
+
+Scene Detection: 
+  - surfing.mp4: 3 scenes detected, extracted 2 best segments
+  - yoga.mp4: 2 scenes detected, extracted 2 best segments  
+  - skateboarding.mp4: 2 scenes detected, extracted 2 best segments
+  
+Analysis: Detected "epic" as dominant emotion (2 epic, 1 calm)
 Music: Selected "epic.mp3"
-Filters Applied: Dramatic high-contrast filter
-Transitions: Zoom-in (start), crossfades (middle), zoom-out (end)
-Output: 20-second cinematic video with epic background music
+Segments: 6 high-quality segments total
+Filters: Dramatic high-contrast filter
+Transitions: 
+  - Segment 1 (surf) → DRAMATIC opening
+  - Segment 1-2 (same video) → subtle crossfade
+  - Segment 2 (surf) → 3 (yoga) → DRAMATIC transition (different video)
+  - Segment 6 → DRAMATIC closing
+
+Output: 24-second cinematic video with adaptive transitions
+
+⏱️  PERFORMANCE BREAKDOWN
+  AI emotion analysis:  0:01:45
+  Scene detection:      0:01:20
+  Apply filters:        0:06:30
+  Video rendering:      0:04:15
+  TOTAL TIME:           0:14:32
 ```
+
+## 📚 Advanced Features Documentation
+
+For detailed information about the ML and Computer Vision improvements, see:
+- **[ML_IMPROVEMENTS.md](ML_IMPROVEMENTS.md)** - Detailed explanation of all ML/CV enhancements
+
+Key improvements include:
+- Intelligent frame quality analysis (32→16 best frames)
+- Histogram-based scene detection
+- Multi-segment extraction per video
+- Adaptive context-aware transitions
+- Comprehensive performance tracking
 
 ## 🤝 Contributing
 
 Feel free to enhance this project! Some ideas:
 - Add more filter styles
-- Implement more transition types
+- Implement audio beat detection for sync
 - Support for text overlays
-- Color grading presets
+- Face detection for better framing
+- Object detection for content-aware editing
 - Audio ducking for voice-overs
 
 ## 📄 License
