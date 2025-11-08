@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """
-Advanced Video Editor with Emotion Detection and Cinematic Effects
+Cinematic Video Editor with AI-Powered Emotion Detection
+Automatically creates polished videos with smart transitions and effects.
 """
 
 import os
 import sys
 import argparse
-import torch
+import time
+import random
+import warnings
+from datetime import timedelta
+from collections import Counter
+
 import numpy as np
 import cv2
+import torch
 from moviepy.editor import *
 from transformers import VideoMAEImageProcessor, VideoMAEForVideoClassification
-from collections import Counter
-import time
-from datetime import timedelta
-import warnings
+
 warnings.filterwarnings('ignore')
 
 # ==================== CONFIGURATION ====================
@@ -28,18 +32,18 @@ KINETICS_TO_EMOTION_MAP = {
     "parkour": "epic", "skydiving": "epic", "driving car": "epic",
     "riding mechanical bull": "epic", "bungee jumping": "epic",
     "playing drums": "epic", "riding mountain bike": "epic",
-    
+
     # Calm / Serene
     "painting": "calm", "reading book": "calm",
     "drinking coffee": "calm", "yoga": "calm", "tai chi": "calm",
     "catching fish": "calm", "sailing": "calm", "sunbathing": "calm",
     "making tea": "calm", "arranging flowers": "calm",
     "meditation": "calm", "walking through forest": "calm",
-    
+
     # Tense / Suspenseful
     "blowing leaves (pile)": "tense", "fencing (sport)": "tense", 
     "archery": "tense", "sword fighting": "tense",
-    
+
     # Joyful / Happy
     "laughing": "joyful", "smiling": "joyful", "hugging": "joyful",
     "playing guitar": "joyful", "celebrating": "joyful",
@@ -78,8 +82,8 @@ def apply_vintage_filter(frame):
     
     # Add slight vignette
     rows, cols = frame.shape[:2]
-    kernel_x = cv2.getGaussianKernel(cols, cols/2)
-    kernel_y = cv2.getGaussianKernel(rows, rows/2)
+    kernel_x = cv2.getGaussianKernel(cols, cols//2)
+    kernel_y = cv2.getGaussianKernel(rows, rows//2)
     kernel = kernel_y * kernel_x.T
     mask = kernel / kernel.max()
     mask = np.stack([mask]*3, axis=2)
@@ -89,44 +93,63 @@ def apply_vintage_filter(frame):
 
 def apply_cool_cinematic_filter(frame):
     """Applies a cool, blue-tinted cinematic look"""
-    alpha = 1.15  # Contrast
-    beta = -5     # Brightness
+    alpha = 1.25
+    beta = -10
     adjusted = cv2.convertScaleAbs(frame, alpha=alpha, beta=beta)
     
     # Apply cool tint
     b, g, r = cv2.split(adjusted)
-    b = cv2.add(b, 20)
-    r = cv2.subtract(r, 10)
-    g = cv2.add(g, 5)
+    b = cv2.add(b, 30)
+    r = cv2.subtract(r, 15)
+    g = cv2.add(g, 10)
     final_frame = cv2.merge((b, g, r))
+    
+    # Add slight desaturation for moody look
+    hsv = cv2.cvtColor(final_frame, cv2.COLOR_RGB2HSV)
+    hsv[:, :, 1] = np.clip(hsv[:, :, 1] * 0.9, 0, 255)
+    final_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
     
     return np.clip(final_frame, 0, 255).astype(np.uint8)
 
 def apply_warm_cinematic_filter(frame):
     """Applies a warm, golden hour look"""
-    alpha = 1.1   # Contrast
-    beta = 10     # Brightness
+    alpha = 1.2
+    beta = 15
     adjusted = cv2.convertScaleAbs(frame, alpha=alpha, beta=beta)
     
     # Apply warm tint
     b, g, r = cv2.split(adjusted)
-    r = cv2.add(r, 25)
-    g = cv2.add(g, 15)
-    b = cv2.subtract(b, 10)
+    r = cv2.add(r, 35)
+    g = cv2.add(g, 20)
+    b = cv2.subtract(b, 15)
     final_frame = cv2.merge((b, g, r))
+    
+    # Boost saturation for vibrant look
+    hsv = cv2.cvtColor(final_frame, cv2.COLOR_RGB2HSV)
+    hsv[:, :, 1] = np.clip(hsv[:, :, 1] * 1.3, 0, 255)
+    final_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
     
     return np.clip(final_frame, 0, 255).astype(np.uint8)
 
 def apply_dramatic_filter(frame):
     """Applies a high-contrast dramatic look"""
-    alpha = 1.3   # High contrast
-    beta = -10    # Darker shadows
+    alpha = 1.5
+    beta = -15
     adjusted = cv2.convertScaleAbs(frame, alpha=alpha, beta=beta)
     
-    # Increase saturation slightly
+    # Increase saturation
     hsv = cv2.cvtColor(adjusted, cv2.COLOR_RGB2HSV)
-    hsv[:, :, 1] = np.clip(hsv[:, :, 1] * 1.2, 0, 255)
+    hsv[:, :, 1] = np.clip(hsv[:, :, 1] * 1.5, 0, 255)
+    hsv[:, :, 2] = np.clip(hsv[:, :, 2] * 1.1, 0, 255)
     final_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+    
+    # Add strong vignette for drama
+    h, w = final_frame.shape[:2]
+    X, Y = np.meshgrid(np.linspace(-1, 1, w), np.linspace(-1, 1, h))
+    radius = np.sqrt(X**2 + Y**2)
+    vignette = 1 - np.clip(radius * 0.5, 0, 0.4)
+    vignette = np.stack([vignette]*3, axis=2)
+    final_frame = (final_frame * vignette).astype(np.uint8)
     
     return np.clip(final_frame, 0, 255).astype(np.uint8)
 
@@ -206,13 +229,12 @@ def calculate_frame_quality_score(frame):
     brightness = calculate_frame_brightness(frame)
     contrast = calculate_frame_contrast(frame)
     
-    # Normalize and weight the scores
-    # Sharpness is most important for quality
+    # Weighted quality score
     quality_score = (
-        sharpness * 0.4 +  # Weight sharpness highly
-        vibrancy * 0.3 +   # Vibrant colors are appealing
-        brightness * 0.15 + # Good exposure
-        contrast * 0.15     # Good contrast
+        sharpness * 0.4 +
+        vibrancy * 0.3 +
+        brightness * 0.15 +
+        contrast * 0.15
     )
     
     return quality_score
@@ -266,46 +288,321 @@ def detect_scene_changes(video_path, threshold=30.0):
     cap.release()
     return scene_timestamps
 
+# ==================== VISUAL EFFECTS & OVERLAYS ====================
+
+def create_heart_particle(frame, x, y, size, color=(255, 20, 147), alpha=0.8):
+    """Draw a proper heart shape using mathematical curve"""
+    # Ensure frame is uint8
+    frame = frame.astype(np.uint8)
+    h, w = frame.shape[:2]
+    
+    # Check bounds
+    if x < 0 or x >= w or y < 0 or y >= h:
+        return frame
+    
+    # Create heart shape using parametric equations
+    heart_points = []
+    for t in np.linspace(0, 2*np.pi, 100):
+        # Parametric heart curve equations
+        heart_x = 16 * np.sin(t)**3
+        heart_y = -(13 * np.cos(t) - 5 * np.cos(2*t) - 2 * np.cos(3*t) - np.cos(4*t))
+        
+        # Scale and translate
+        px = int(x + heart_x * size / 20)
+        py = int(y + heart_y * size / 20)
+        
+        if 0 <= px < w and 0 <= py < h:
+            heart_points.append([px, py])
+    
+    if len(heart_points) > 3:
+        heart_points = np.array(heart_points, dtype=np.int32)
+        
+        # Create a mask for the heart
+        mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.fillPoly(mask, [heart_points], 255)
+        
+        # Apply the heart with alpha blending
+        for c in range(3):
+            frame[:, :, c] = np.where(
+                mask == 255,
+                frame[:, :, c] * (1 - alpha) + color[c] * alpha,
+                frame[:, :, c]
+            ).astype(np.uint8)
+    
+    return frame
+
+def create_sparkle(frame, x, y, size, intensity=255):
+    """Draw a sparkle/star at given position"""
+    frame = frame.astype(np.uint8)
+    color = (int(intensity), int(intensity), int(intensity * 0.8))
+    
+    # Ensure coordinates are within bounds
+    h, w = frame.shape[:2]
+    if x < size or x > w-size or y < size or y > h-size:
+        return frame
+    
+    # Draw cross pattern for sparkle
+    cv2.line(frame, (x-size, y), (x+size, y), color, 2)
+    cv2.line(frame, (x, y-size), (x, y+size), color, 2)
+    cv2.line(frame, (x-size//2, y-size//2), (x+size//2, y+size//2), color, 1)
+    cv2.line(frame, (x-size//2, y+size//2), (x+size//2, y-size//2), color, 1)
+    
+    return frame
+
+def apply_celebration_effect(frame, t, duration):
+    """Add celebration confetti and sparkles"""
+    if t > duration:
+        return frame
+    
+    frame = frame.astype(np.uint8)
+    progress = t / duration
+    h, w = frame.shape[:2]
+    
+    # Random confetti particles
+    num_particles = int(50 * (1 - progress))
+    for _ in range(num_particles):
+        x = random.randint(0, w-1)
+        y = int(random.random() * h * progress)  # Fall down
+        color = tuple([random.randint(100, 255) for _ in range(3)])
+        size = random.randint(4, 12)  # Bigger particles
+        if 0 <= x < w and 0 <= y < h:
+            cv2.circle(frame, (x, y), size, color, -1)
+    
+    # Sparkles
+    num_sparkles = int(25 * (1 - progress))
+    if w > 100 and h > 100:  # Only if frame is big enough
+        for _ in range(num_sparkles):
+            x = random.randint(50, w-50)
+            y = random.randint(50, h-50)
+            size = random.randint(8, 20)  # Bigger sparkles
+            intensity = random.randint(200, 255)
+            frame = create_sparkle(frame, x, y, size, intensity)
+    
+    return frame
+
+def apply_hearts_effect(frame, t, duration):
+    """Add floating hearts effect"""
+    if t > duration:
+        return frame
+    
+    progress = t / duration
+    h, w = frame.shape[:2]
+    
+    # Floating hearts
+    num_hearts = int(20 * (1 - progress**2))
+    for i in range(num_hearts):
+        seed = i * 1000 + int(t * 100)
+        random.seed(seed)
+        x = random.randint(0, w-100)
+        y_base = random.randint(0, h)
+        y = int(y_base - progress * h * 0.4)  # Float higher
+        size = random.randint(20, 40)  # Bigger hearts
+        color = [(255, 20, 147), (255, 105, 180), (255, 192, 203), (255, 0, 100)][i % 4]
+        alpha = max(0.4, 0.9 * (1 - progress))  # More visible
+        frame = create_heart_particle(frame, x, y, size, color, alpha)
+    
+    random.seed()  # Reset seed
+    return frame
+
+def apply_light_leak_effect(frame, color=(255, 200, 150), intensity=0.3):
+    """Add cinematic light leak effect"""
+    h, w = frame.shape[:2]
+    
+    # Create gradient overlay
+    overlay = np.zeros_like(frame, dtype=np.float32)
+    
+    # Diagonal light leak
+    for i in range(h):
+        for j in range(w):
+            dist = np.sqrt((i/h)**2 + (j/w)**2)
+            if dist < 0.7:
+                factor = (0.7 - dist) / 0.7
+                overlay[i, j] = [c * factor * intensity for c in color]
+    
+    frame = cv2.addWeighted(frame, 1, overlay.astype(np.uint8), 1, 0)
+    return np.clip(frame, 0, 255).astype(np.uint8)
+
+def apply_film_grain(frame, intensity=0.1):
+    """Add film grain for vintage effect"""
+    noise = np.random.normal(0, 25*intensity, frame.shape).astype(np.int16)
+    frame = frame.astype(np.int16) + noise
+    return np.clip(frame, 0, 255).astype(np.uint8)
+
+def create_vignette_strong(frame, strength=0.6):
+    """Create strong vignette effect"""
+    h, w = frame.shape[:2]
+    
+    # Create radial gradient
+    X, Y = np.meshgrid(np.linspace(-1, 1, w), np.linspace(-1, 1, h))
+    radius = np.sqrt(X**2 + Y**2)
+    vignette = 1 - np.clip(radius * strength, 0, 1)
+    vignette = np.stack([vignette]*3, axis=2)
+    
+    frame = (frame * vignette).astype(np.uint8)
+    return frame
+
+def apply_screen_flash(frame, intensity=1.0):
+    """Apply white screen flash effect"""
+    flash_overlay = np.ones_like(frame) * 255
+    return cv2.addWeighted(frame.astype(np.uint8), 1-intensity, 
+                           flash_overlay.astype(np.uint8), intensity, 0)
+
+def apply_color_burst(frame, t, duration, color='rainbow'):
+    """Apply colorful burst effect"""
+    if t > duration:
+        return frame
+    
+    progress = t / duration
+    intensity = (1 - progress) * 0.5  # Fade out
+    
+    h, w = frame.shape[:2]
+    
+    if color == 'rainbow':
+        # Create rainbow gradient
+        overlay = np.zeros_like(frame)
+        for i in range(h):
+            hue_val = int(180 * (i / h))
+            hsv_color = np.uint8([[[hue_val, 255, 255]]])
+            rgb_color = cv2.cvtColor(hsv_color, cv2.COLOR_HSV2RGB)[0][0]
+            overlay[i, :] = rgb_color
+    elif color == 'gold':
+        overlay = np.full_like(frame, (50, 215, 255))  # Gold color
+    elif color == 'purple':
+        overlay = np.full_like(frame, (128, 0, 255))  # Purple
+    else:
+        overlay = np.full_like(frame, (255, 255, 255))  # White
+    
+    return cv2.addWeighted(frame.astype(np.uint8), 1, 
+                           overlay.astype(np.uint8), intensity, 0)
+
 # ==================== TRANSITION EFFECTS ====================
 
-def apply_zoom_in_transition(clip, duration=1.0):
-    """Applies a zoom-in effect at the start of the clip"""
+def apply_zoom_in_transition(clip, duration=1.0, intensity='medium'):
+    """Applies a dramatic zoom-in effect"""
+    zoom_amount = {'low': 0.15, 'medium': 0.3, 'high': 0.5, 'extreme': 0.8}
+    zoom = zoom_amount.get(intensity, 0.3)
+    
     def zoom_in(t):
         if t < duration:
-            scale = 1 + 0.15 * (1 - t/duration)  # Zoom from 1.15x to 1.0x
+            scale = 1 + zoom * (1 - t/duration)  # More dramatic zoom
             return scale
         return 1
     return clip.resize(lambda t: zoom_in(t))
 
-def apply_zoom_out_transition(clip, duration=1.0):
-    """Applies a zoom-out effect at the end of the clip"""
+def apply_zoom_out_transition(clip, duration=1.0, intensity='medium'):
+    """Applies a dramatic zoom-out effect"""
+    zoom_amount = {'low': 0.15, 'medium': 0.3, 'high': 0.5, 'extreme': 0.8}
+    zoom = zoom_amount.get(intensity, 0.3)
+    
     total_duration = clip.duration
     def zoom_out(t):
         if t > total_duration - duration:
-            scale = 1 + 0.15 * ((t - (total_duration - duration))/duration)
+            scale = 1 + zoom * ((t - (total_duration - duration))/duration)
             return scale
         return 1
     return clip.resize(lambda t: zoom_out(t))
 
-def apply_slide_in_transition(clip, duration=1.0):
-    """Applies a slide-in effect from the right"""
-    w, h = clip.size
-    def slide_in(t):
+def apply_scale_in_transition(clip, duration=1.0):
+    """Applies a dramatic scale-in effect"""
+    def scale_in(t):
         if t < duration:
-            offset = int(w * (1 - t/duration))
-            return (offset, 0)
-        return (0, 0)
-    return clip.set_position(lambda t: slide_in(t))
+            scale = 0.5 + 0.5 * (t/duration)
+            return scale
+        return 1
+    return clip.resize(lambda t: scale_in(t))
 
-def apply_dramatic_zoom_rotate(clip, duration=1.5):
-    """Applies dramatic zoom with slight rotation for video transitions"""
-    def zoom_rotate(t):
+def apply_explosive_zoom(clip, duration=1.5):
+    """Explosive zoom in effect"""
+    def explosive(t):
         if t < duration:
             progress = t / duration
-            scale = 1 + 0.2 * progress  # Zoom from 1.0x to 1.2x
+            # Exponential zoom for explosive effect
+            scale = 1 + 1.0 * (1 - progress)**2
             return scale
-        return 1.2
-    return clip.resize(lambda t: zoom_rotate(t))
+        return 1
+    return clip.resize(lambda t: explosive(t))
+
+def apply_slide_in_left(clip, duration=1.0):
+    """Slide in from left"""
+    w, h = clip.size
+    def slide(t):
+        if t < duration:
+            x = -w * (1 - t/duration)
+            return (x, 'center')
+        return ('center', 'center')
+    return clip.set_position(lambda t: slide(t))
+
+def apply_slide_in_right(clip, duration=1.0):
+    """Slide in from right"""
+    w, h = clip.size
+    def slide(t):
+        if t < duration:
+            x = w * (1 - t/duration)
+            return (x, 'center')
+        return ('center', 'center')
+    return clip.set_position(lambda t: slide(t))
+
+def apply_slide_out_left(clip, duration=1.0):
+    """Slide out to left"""
+    w, h = clip.size
+    total_duration = clip.duration
+    def slide(t):
+        if t > total_duration - duration:
+            progress = (t - (total_duration - duration)) / duration
+            x = -w * progress
+            return (x, 'center')
+        return ('center', 'center')
+    return clip.set_position(lambda t: slide(t))
+
+def apply_slide_out_right(clip, duration=1.0):
+    """Slide out to right"""
+    w, h = clip.size
+    total_duration = clip.duration
+    def slide(t):
+        if t > total_duration - duration:
+            progress = (t - (total_duration - duration)) / duration
+            x = w * progress
+            return (x, 'center')
+        return ('center', 'center')
+    return clip.set_position(lambda t: slide(t))
+
+def apply_ken_burns_effect(clip, duration=1.0, zoom_direction='in'):
+    """Apply Ken Burns pan and zoom effect"""
+    if zoom_direction == 'in':
+        # Zoom in effect
+        return apply_zoom_in_transition(clip, duration)
+    else:
+        # Zoom out effect
+        return apply_zoom_out_transition(clip, duration)
+
+def apply_wipe_transition(clip, duration=1.0, direction='horizontal'):
+    """Apply wipe transition"""
+    w, h = clip.size
+    
+    def mask_fn(t):
+        if t < duration:
+            progress = t / duration
+            mask = np.zeros((h, w), dtype=np.uint8)
+            if direction == 'horizontal':
+                cutoff = int(w * progress)
+                mask[:, :cutoff] = 255
+            else:  # vertical
+                cutoff = int(h * progress)
+                mask[:cutoff, :] = 255
+            return mask
+        return np.ones((h, w), dtype=np.uint8) * 255
+    
+    # Note: MoviePy doesn't support custom masks easily, so we'll use fade + slide combo
+    if direction == 'horizontal':
+        return clip.fx(vfx.fadein, duration)
+    else:
+        return clip.fx(vfx.fadein, duration)
+
+# Transition types list for variety
+TRANSITION_TYPES = [
+    'zoom_in', 'zoom_out', 'slide_left', 'slide_right', 
+    'spin', 'rotate', 'fade', 'crossfade'
+]
 
 # ==================== VIDEO ANALYSIS ====================
 
@@ -313,25 +610,25 @@ def load_video_model():
     """Load the VideoMAE model for emotion detection"""
     print("Loading VideoMAE model for emotion detection...")
     try:
-        video_feature_extractor = VideoMAEImageProcessor.from_pretrained(
-            "MCG-NJU/videomae-base-finetuned-kinetics",
-            use_auth_token=False
-        )
-        video_model = VideoMAEForVideoClassification.from_pretrained(
-            "MCG-NJU/videomae-base-finetuned-kinetics",
-            use_auth_token=False
-        )
+    video_feature_extractor = VideoMAEImageProcessor.from_pretrained(
+        "MCG-NJU/videomae-base-finetuned-kinetics",
+        use_auth_token=False
+    )
+    video_model = VideoMAEForVideoClassification.from_pretrained(
+        "MCG-NJU/videomae-base-finetuned-kinetics",
+        use_auth_token=False
+    )
         print("✅ Video model loaded successfully.")
         return video_feature_extractor, video_model
-    except Exception as e:
-        print(f"❌ Error loading model: {e}")
+except Exception as e:
+    print(f"❌ Error loading model: {e}")
         sys.exit(1)
 
 def get_clip_emotion(video_path, feature_extractor, model):
     """Analyzes a video file and returns its emotional theme using intelligent frame selection"""
     try:
         clip = VideoFileClip(video_path)
-        
+
         # Extract 32 frames evenly spaced (more samples for better quality selection)
         num_candidate_frames = 32
         candidate_frames = []
@@ -345,22 +642,22 @@ def get_clip_emotion(video_path, feature_extractor, model):
             candidate_frames.append(frame)
         
         clip.close()
-        
+
         # Select the best 16 frames based on quality metrics
         print(f"    - Analyzing frame quality...")
         best_frames = select_best_frames(candidate_frames, num_frames=16)
         
         inputs = feature_extractor(list(best_frames), return_tensors="pt")
-        
+
         with torch.no_grad():
             outputs = model(**inputs)
             logits = outputs.logits
-        
+
         predicted_class_idx = logits.argmax(-1).item()
         predicted_label = model.config.id2label[predicted_class_idx]
-        
+
         emotion = KINETICS_TO_EMOTION_MAP.get(predicted_label, DEFAULT_EMOTION)
-        
+
         print(f"  - '{os.path.basename(video_path)}': Action='{predicted_label}' → Emotion='{emotion}'")
         return emotion
     except Exception as e:
@@ -397,7 +694,7 @@ def extract_best_segments(video_path, min_duration=3.0, max_segments=3):
             })
     
     clip.close()
-    
+
     # If no good segments found, use the whole video
     if not segments:
         segments = [{
@@ -446,8 +743,8 @@ def process_video_segment(video_path, segment_info, source_index, segment_index,
     
     clip = clip.subclip(start, min(end, clip.duration))
     
-    # Resize to 720p
-    clip = clip.resize(height=720)
+    # Resize to 1080p (Full HD) for better quality
+    clip = clip.resize(height=1080)
     
     # Apply appropriate filter based on emotion
     filter_func = EMOTION_TO_FILTER.get(dominant_emotion, apply_neutral_enhance_filter)
@@ -462,32 +759,191 @@ def process_video_segment(video_path, segment_info, source_index, segment_index,
         'video_path': video_path
     }
 
-def apply_adaptive_transition(clip_data, prev_clip_data, is_first, is_last, transition_duration=1.0):
-    """Apply adaptive transitions based on whether clips are from same source"""
+def apply_diverse_transitions(clip_data, prev_clip_data, clip_index, total_clips, dominant_emotion, transition_duration=1.0):
+    """Apply diverse transitions with special effects"""
     clip = clip_data['clip']
+    is_first = (clip_index == 0)
+    is_last = (clip_index == total_clips - 1)
     
     if is_first:
-        # First clip: dramatic opening with fade in + zoom in
-        print(f"      - Applying DRAMATIC opening transition")
-        clip = clip.fx(vfx.fadein, transition_duration)
-        clip = apply_zoom_in_transition(clip, transition_duration)
+        # First clip: Explosive opening
+        print(f"      - Applying explosive opening (flash + confetti + zoom)")
+        
+        # Add WHITE FLASH at the very start + celebration
+        def explosive_opening(get_frame, t):
+            frame = get_frame(t)
+            # Intense white flash in first 0.2 seconds
+            if t < 0.2:
+                flash_intensity = 0.8 * (1 - t/0.2)
+                frame = apply_screen_flash(frame.copy(), flash_intensity)
+            # Confetti and sparkles
+            if t < 3.0:
+                frame = apply_celebration_effect(frame.copy(), t, 3.0)
+            # Color burst for extra flair
+            if t < 1.5:
+                frame = apply_color_burst(frame.copy(), t, 1.5, 'rainbow')
+            return frame
+        
+        clip = clip.fl(explosive_opening)
+        clip = clip.fx(vfx.fadein, transition_duration * 0.5)  # Quick fade
+        clip = apply_explosive_zoom(clip, transition_duration * 1.5)  # Explosive zoom
+        
     elif is_last:
-        # Last clip: dramatic closing with fade out + zoom out
-        print(f"      - Applying DRAMATIC closing transition")
-        clip = clip.fx(vfx.fadeout, transition_duration)
-        clip = apply_zoom_out_transition(clip, transition_duration)
+        # Last clip: Dramatic finale
+        print(f"      - Applying dramatic finale (hearts + glow + zoom)")
+        
+        # Add hearts + glow effect for emotional ending
+        def dramatic_finale(get_frame, t):
+            frame = get_frame(t)
+            remaining = clip.duration - t
+            # Hearts throughout the ending
+            if remaining < 3.0:
+                frame = apply_hearts_effect(frame.copy(), 3.0 - remaining, 3.0)
+            # Bright glow at the very end
+            if remaining < 0.5:
+                glow_intensity = (0.5 - remaining) / 0.5 * 0.3
+                frame = apply_screen_flash(frame.copy(), glow_intensity)
+            return frame
+        
+        clip = clip.fl(dramatic_finale)
+        clip = clip.fx(vfx.fadeout, transition_duration * 1.5)  # Slow fade
+        clip = apply_zoom_out_transition(clip, transition_duration * 1.5, 'high')  # Dramatic zoom
+        
     else:
-        # Check if same source as previous clip
-        if prev_clip_data and clip_data['source_index'] == prev_clip_data['source_index']:
-            # Same source video: subtle transition (just crossfade)
-            print(f"      - Applying SUBTLE transition (same source)")
-            clip = clip.fx(vfx.fadein, 0.5).fx(vfx.fadeout, 0.5)
+        # MIDDLE CLIPS: Super varied and dramatic
+        same_source = prev_clip_data and clip_data['source_index'] == prev_clip_data['source_index']
+        
+        if same_source:
+            # Dynamic transitions within same video
+            transitions = ['zoom_medium', 'scale_dramatic', 'fade_zoom']
+            transition_type = random.choice(transitions)
+            
+            print(f"      - Applying DYNAMIC {transition_type} (same source)")
+            
+            clip = clip.fx(vfx.fadein, 0.7).fx(vfx.fadeout, 0.7)
+            
+            if transition_type == 'zoom_medium':
+                clip = apply_zoom_in_transition(clip, 0.8, 'medium')
+            elif transition_type == 'scale_dramatic':
+                clip = apply_scale_in_transition(clip, 0.9)
+            elif transition_type == 'fade_zoom':
+                clip = apply_zoom_in_transition(clip, 0.7, 'low')
+                
         else:
-            # Different source video: dramatic transition
-            print(f"      - Applying DRAMATIC transition (new source)")
-            clip = clip.fx(vfx.fadein, transition_duration).fx(vfx.fadeout, transition_duration)
-            # Add slight zoom for impact
-            clip = apply_zoom_in_transition(clip, transition_duration * 0.7)
+            # Dramatic transitions between different videos
+            dramatic_transitions = ['explosive', 'slide_flash_left', 'slide_flash_right', 'zoom_burst', 'scale_flash']
+            transition_type = random.choice(dramatic_transitions)
+            
+            print(f"      - Applying dramatic {transition_type} (new source)")
+            
+            if transition_type == 'explosive':
+                # Flash + explosive zoom
+                def flash_entry(get_frame, t):
+                    frame = get_frame(t)
+                    if t < 0.15:
+                        flash_intensity = 0.6 * (1 - t/0.15)
+                        frame = apply_screen_flash(frame.copy(), flash_intensity)
+                    return frame
+                clip = clip.fl(flash_entry)
+                clip = clip.fx(vfx.fadein, transition_duration * 0.5)
+                clip = apply_explosive_zoom(clip, transition_duration * 1.2)
+                clip = clip.fx(vfx.fadeout, transition_duration)
+                
+            elif transition_type == 'slide_flash_left':
+                # Slide + flash
+                def flash_entry(get_frame, t):
+                    frame = get_frame(t)
+                    if t < 0.1:
+                        frame = apply_screen_flash(frame.copy(), 0.5)
+                    return frame
+                clip = clip.fl(flash_entry)
+                clip = clip.fx(vfx.fadein, transition_duration * 0.8)
+                clip = apply_slide_in_left(clip, transition_duration)
+                clip = clip.fx(vfx.fadeout, transition_duration)
+                
+            elif transition_type == 'slide_flash_right':
+                # Slide + flash
+                def flash_entry(get_frame, t):
+                    frame = get_frame(t)
+                    if t < 0.1:
+                        frame = apply_screen_flash(frame.copy(), 0.5)
+                    return frame
+                clip = clip.fl(flash_entry)
+                clip = clip.fx(vfx.fadein, transition_duration * 0.8)
+                clip = apply_slide_in_right(clip, transition_duration)
+                clip = clip.fx(vfx.fadeout, transition_duration)
+                
+            elif transition_type == 'zoom_burst':
+                # Color burst + zoom
+                def burst_entry(get_frame, t):
+                    frame = get_frame(t)
+                    if t < 1.0:
+                        frame = apply_color_burst(frame.copy(), t, 1.0, 'gold')
+                    return frame
+                clip = clip.fl(burst_entry)
+                clip = clip.fx(vfx.fadein, transition_duration)
+                clip = apply_zoom_in_transition(clip, transition_duration, 'high')
+                clip = clip.fx(vfx.fadeout, transition_duration)
+                
+            elif transition_type == 'scale_flash':
+                # Flash + dramatic scale
+                def flash_entry(get_frame, t):
+                    frame = get_frame(t)
+                    if t < 0.1:
+                        frame = apply_screen_flash(frame.copy(), 0.6)
+                    return frame
+                clip = clip.fl(flash_entry)
+                clip = clip.fx(vfx.fadein, transition_duration * 0.6)
+                clip = apply_scale_in_transition(clip, transition_duration * 1.2)
+                clip = clip.fx(vfx.fadeout, transition_duration)
+    
+    # Add emotion-specific overlay effects
+    add_effect = False
+    
+    if dominant_emotion == 'joyful':
+        # Add sparkles for joyful clips
+        print(f"      - Adding sparkle effect (joyful theme)")
+        def sparkle_overlay(get_frame, t):
+            frame = get_frame(t)
+            if t < 2.0:  # Longer duration
+                h, w = frame.shape[:2]
+                for _ in range(10):  # More sparkles
+                    x = random.randint(50, w-50)
+                    y = random.randint(50, h-50)
+                    frame = create_sparkle(frame, x, y, random.randint(15, 25), 255)
+            return frame
+        clip = clip.fl(sparkle_overlay)
+        add_effect = True
+    
+    elif dominant_emotion == 'epic' and not is_first and not is_last:
+        # Add light leaks for epic clips
+        print(f"      - Adding light leak effect (epic theme)")
+        def light_leak_overlay(get_frame, t):
+            frame = get_frame(t)
+            if t < 1.5:
+                frame = apply_light_leak_effect(frame.copy(), intensity=0.3)
+            return frame
+        clip = clip.fl(light_leak_overlay)
+        add_effect = True
+    
+    elif dominant_emotion == 'calm' and clip_index % 2 == 0:
+        # Add film grain for calm clips
+        print(f"      - Adding film grain effect (calm theme)")
+        def grain_overlay(get_frame, t):
+            frame = get_frame(t)
+            return apply_film_grain(frame.copy(), intensity=0.08)
+        clip = clip.fl(grain_overlay)
+        add_effect = True
+    
+    # Add hearts randomly to some clips
+    if not is_first and not is_last and clip_index % 4 == 0:
+        print(f"      - Adding floating hearts effect")
+        def hearts_overlay_mid(get_frame, t):
+            frame = get_frame(t)
+            if t < 2.0:
+                frame = apply_hearts_effect(frame.copy(), t, 2.0)
+            return frame
+        clip = clip.fl(hearts_overlay_mid)
     
     clip_data['clip'] = clip
     return clip_data
@@ -557,7 +1013,7 @@ def create_cinematic_video(input_folder, music_folder, output_file="cinematic_ou
     for i, video_path in enumerate(video_paths):
         print(f"\n  Analyzing {os.path.basename(video_path)}...")
         try:
-            segments = extract_best_segments(video_path, min_duration=3.0, max_segments=2)
+            segments = extract_best_segments(video_path, min_duration=2.5, max_segments=1)  # Only 1 segment per video
             for seg in segments:
                 all_segments.append({
                     'video_path': video_path,
@@ -602,9 +1058,9 @@ def create_cinematic_video(input_folder, music_folder, output_file="cinematic_ou
     print("\n" + "="*60)
     print("STEP 5: Processing segments with cinematic filters")
     print("="*60)
-    
+
     processed_clips = []
-    clip_duration = 3.0
+    clip_duration = 2.5
     
     for i, seg_data in enumerate(all_segments):
         try:
@@ -628,23 +1084,26 @@ def create_cinematic_video(input_folder, music_folder, output_file="cinematic_ou
     print(f"\n✅ Successfully processed {len(processed_clips)} segments")
     step_times['filter_processing'] = time.time() - step_start
     
-    # 6. Apply adaptive transitions
+    # 6. Apply diverse transitions and special effects
     step_start = time.time()
     print("\n" + "="*60)
-    print("STEP 6: Applying adaptive transitions")
+    print("STEP 6: Applying transitions & special effects")
     print("="*60)
-    print("  (Subtle transitions within same video, dramatic between different videos)")
+    print("  Opening: Flash + rainbow burst + confetti + explosive zoom")
+    print("  Finale: Floating hearts + glow + dramatic zoom")
+    print("  Transitions: Explosive, slides, zooms, scales")
+    print("  Effects: Sparkles, light leaks, film grain, hearts")
+    print()
     
     for i in range(len(processed_clips)):
-        is_first = (i == 0)
-        is_last = (i == len(processed_clips) - 1)
         prev_clip = processed_clips[i-1] if i > 0 else None
         
-        processed_clips[i] = apply_adaptive_transition(
+        processed_clips[i] = apply_diverse_transitions(
             processed_clips[i],
             prev_clip,
-            is_first,
-            is_last
+            i,
+            len(processed_clips),
+            dominant_emotion
         )
     
     step_times['transitions'] = time.time() - step_start
@@ -660,7 +1119,7 @@ def create_cinematic_video(input_folder, music_folder, output_file="cinematic_ou
     final_video = concatenate_videoclips(clips_only, method="compose")
     
     # 8. Add music
-    if main_audio:
+if main_audio:
         print("Adding background music with dynamic volume...")
         audio_duration = final_video.duration
         main_audio = main_audio.fx(afx.audio_loop, duration=audio_duration)
@@ -680,14 +1139,14 @@ def create_cinematic_video(input_folder, music_folder, output_file="cinematic_ou
     print("Encoding with H.264... This may take several minutes...")
     
     try:
-        final_video.write_videofile(
+    final_video.write_videofile(
             output_file,
-            codec='libx264',
-            audio_codec='aac',
+        codec='libx264',
+        audio_codec='aac',
             fps=24,
-            preset='medium',
-            bitrate='5000k',
-            temp_audiofile='temp-audio.m4a',
+            preset='fast',  # Faster rendering
+            bitrate='6000k',  # Higher bitrate for 1080p quality
+        temp_audiofile='temp-audio.m4a',
             remove_temp=True,
             logger='bar'
         )
@@ -724,7 +1183,7 @@ def create_cinematic_video(input_folder, music_folder, output_file="cinematic_ou
         final_video.close()
         if main_audio:
             main_audio.close()
-        
+
     except Exception as e:
         print(f"\n❌ Error during video rendering: {e}")
         sys.exit(1)
